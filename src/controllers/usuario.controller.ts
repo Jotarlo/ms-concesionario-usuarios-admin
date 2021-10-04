@@ -12,9 +12,9 @@ import {
   getModelSchemaRef, param, patch, post, put, requestBody,
   response
 } from '@loopback/rest';
-import {Credenciales, Usuario} from '../models';
+import {Credenciales, CredencialesCambioClave, CredencialesRecuperarClave, NotificacionCorreo, Usuario} from '../models';
 import {UsuarioRepository} from '../repositories';
-import {AdministradorDeClavesService} from '../services';
+import {AdministradorDeClavesService, NotificacionesService} from '../services';
 
 export class UsuarioController {
   constructor(
@@ -22,6 +22,8 @@ export class UsuarioController {
     public usuarioRepository: UsuarioRepository,
     @service(AdministradorDeClavesService)
     public servicioClaves: AdministradorDeClavesService,
+    @service(NotificacionesService)
+    public servicioNotificaciones: NotificacionesService
   ) { }
 
   @post('/usuarios')
@@ -45,6 +47,11 @@ export class UsuarioController {
     let clave = this.servicioClaves.GenerarClaveAleatoria();
     console.log(clave);
     // notificar por correo al usuario la clave normal
+    let notificacion = new NotificacionCorreo();
+    notificacion.destinatario = usuario.correo;
+    notificacion.asunto = "Registro en el sistema";
+    notificacion.mensaje = `Hola ${usuario.nombre}<br />Su clave de acceso al sistema es ${clave} y su usuario es el correo electrónico`;
+    this.servicioNotificaciones.EnviarCorreo(notificacion);
     let claveCifrada = this.servicioClaves.CifrarTexto(clave);
     console.log(claveCifrada);
     usuario.clave = claveCifrada;
@@ -176,10 +183,72 @@ export class UsuarioController {
       }
     });
     if (usuario) {
+      usuario.clave = "";
       // consumir el ms de tokens y generar uno nuevo
       // se asignará ese token a la respuesta para el cliente
     }
     return usuario;
+  }
+
+  @post("/recuperar-clave", {
+    responses: {
+      '200': {
+        description: "Recuperación de clave de usuarios"
+      }
+    }
+  })
+  async recuperarClave(
+    @requestBody() credenciales: CredencialesRecuperarClave
+  ): Promise<Boolean> {
+    let usuario = await this.usuarioRepository.findOne({
+      where: {
+        correo: credenciales.correo
+      }
+    });
+    if (usuario) {
+      let clave = this.servicioClaves.GenerarClaveAleatoria();
+      console.log(clave)
+      let claveCifrada = this.servicioClaves.CifrarTexto(clave);
+      console.log(claveCifrada)
+      usuario.clave = claveCifrada;
+      await this.usuarioRepository.updateById(usuario._id, usuario);
+      // consumir el ms de notificaciones
+      // Enviar la nueva clave por SMS
+      return true;
+    }
+    return false;
+  }
+
+
+  @post("/cambiar-clave", {
+    responses: {
+      '200': {
+        description: "Cambio de clave de usuarios"
+      }
+    }
+  })
+  async cambiarClave(
+    @requestBody() datos: CredencialesCambioClave
+  ): Promise<Boolean> {
+    let usuario = await this.usuarioRepository.findById(datos.id);
+    if (usuario) {
+      if (usuario.clave == datos.clave_actual) {
+        usuario.clave = datos.nueva_clave;
+        console.log(datos.nueva_clave);
+        await this.usuarioRepository.updateById(datos.id, usuario);
+        // enviar email al usuario notificando el cambio de contraseña
+
+        let notificacion = new NotificacionCorreo();
+        notificacion.destinatario = usuario.correo;
+        notificacion.asunto = "Cambio de clave";
+        notificacion.mensaje = `Hola ${usuario.nombre}<br />Se ha modificado su contraseña en el sistema`;
+        this.servicioNotificaciones.EnviarCorreo(notificacion);
+        return true;
+      } else {
+        return false;
+      }
+    }
+    return false;
   }
 
 }
