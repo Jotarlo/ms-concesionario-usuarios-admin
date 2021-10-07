@@ -12,7 +12,8 @@ import {
   getModelSchemaRef, param, patch, post, put, requestBody,
   response
 } from '@loopback/rest';
-import {Credenciales, CredencialesCambioClave, CredencialesRecuperarClave, NotificacionCorreo, Usuario} from '../models';
+import {Configuraciones} from "../config/configuraciones";
+import {Credenciales, CredencialesCambioClave, CredencialesRecuperarClave, NotificacionCorreo, NotificacionSms, Usuario} from '../models';
 import {UsuarioRepository} from '../repositories';
 import {AdministradorDeClavesService, NotificacionesService} from '../services';
 
@@ -213,7 +214,10 @@ export class UsuarioController {
       usuario.clave = claveCifrada;
       await this.usuarioRepository.updateById(usuario._id, usuario);
       // consumir el ms de notificaciones
-      // Enviar la nueva clave por SMS
+      let notificacion = new NotificacionSms();
+      notificacion.destino = usuario.celular;
+      notificacion.mensaje = `${Configuraciones.saludo_notificaciones} ${usuario.nombre}${Configuraciones.mensaje_recuperar_clave} ${clave}`;
+      this.servicioNotificaciones.EnviarSms(notificacion);
       return true;
     }
     return false;
@@ -240,8 +244,8 @@ export class UsuarioController {
 
         let notificacion = new NotificacionCorreo();
         notificacion.destinatario = usuario.correo;
-        notificacion.asunto = "Cambio de clave";
-        notificacion.mensaje = `Hola ${usuario.nombre}<br />Se ha modificado su contraseña en el sistema`;
+        notificacion.asunto = Configuraciones.asunto_cambio_clave;
+        notificacion.mensaje = `${Configuraciones.saludo_notificaciones} ${usuario.nombre}<br />${Configuraciones.mensaje_cambio_clave}`;
         this.servicioNotificaciones.EnviarCorreo(notificacion);
         return true;
       } else {
